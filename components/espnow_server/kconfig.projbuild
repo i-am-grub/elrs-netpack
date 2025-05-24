@@ -1,0 +1,22 @@
+menu "ESPNOW Server options"
+    config ESPNOW_MAX_SEND_ATTEMPTS
+        int "Number of ESPNOW send attempts"
+        default 5
+        help
+            The number of retries when sending an
+            ESPNOW message
+
+    config ESPNOW_SEND_DELAY
+        int "Delay between ESPNOW send attempts"
+        default 0
+        help
+            The amount of artifical delay between sending
+            ESPNOW messages 
+
+    config ESPNOW_CHANNEL
+        int "Channel"
+        default 1
+        range 0 14
+        help
+            The channel on which sending and receiving ESPNOW data.
+endmenu

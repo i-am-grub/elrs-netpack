@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cstring>
+#include "sdkconfig.h"
 #include "espnow_server.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

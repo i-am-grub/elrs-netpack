@@ -26,23 +26,14 @@ jobs:
       working-directory: ./build/
       run: zip ../netpack_firmware.zip -j elrs-netpack.bin bootloader/bootloader.bin partition_table/partition-table.bin
 
-    - name: Create a Release
-      uses: elgohr/Github-Release-Action@v5
-      id: create_release
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      if: github.ref_type == 'tag'
       with:
-        title: ELRS Netpack ${{ github.ref_name }}
-        tag: ${{ github.ref_name }}
-
-    - name: Upload Release Asset
-      id: upload-release-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./netpack_firmware.zip
-        asset_name: netpack_firmware.zip
-        asset_content_type: application/zip
+        token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
+        name: ELRS Netpack ${{ github.ref_name }}
+        generate_release_notes: true
+        make_latest: true
+        files: ./netpack_firmware.zip
+        prerelease: false
        

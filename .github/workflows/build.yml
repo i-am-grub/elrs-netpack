@@ -1,20 +1,19 @@
 name: Build Firmware
 
 on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tags:
         description: 'Test scenario tags'
         required: false
         type: boolean
-
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
   build:
-    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
 
     steps:

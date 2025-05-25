@@ -31,10 +31,9 @@ jobs:
       id: create_release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref_name }}
       with:
-        title: ELRS Netpack $tag
-        tag: $tag
+        title: ELRS Netpack ${{ github.ref_name }}
+        tag: ${{ github.ref_name }}
 
     - name: Upload Release Asset
       id: upload-release-asset

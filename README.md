@@ -1,5 +1,7 @@
 # ELRS Netpack
 
+[![Build Status](https://github.com/i-am-grub/elrs-netpack/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/i-am-grub/elrs-netpack/actions/workflows/build.yml)
+
 > [!IMPORTANT]
 > This project **is not** officially affiliated or supported by the ExpressLRS
 > organization. They do not have an obligation to provide help or support to you

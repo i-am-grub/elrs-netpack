@@ -23,12 +23,20 @@
 
 static const char *TAG = "tcp_server";
 
+static QueueSetHandle_t queue_set = xQueueCreateSet(51);
+static SemaphoreHandle_t xSemaphore = NULL;
+static RingbufHandle_t xRingReceivedEspnow = NULL;
+
 /* Structure to store information about individual connection */
 struct connection_info
 {
     int fd;
     struct sockaddr_in address;
 };
+
+struct connection_info connections[LISTENER_MAX_QUEUE];
+int active_connections_count = 0;
+fd_set ready;
 
 /* Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *data)
@@ -63,17 +71,74 @@ static void start_dhcp_server_after_connection(void *arg, esp_event_base_t base,
 }
 #endif
 
+void tcp_server_sender(void *pvParameters)
+{
+    MSP msp;
+
+    // Send any processed data to active connections
+    // Use the queue set to check for any new data instead of using timeout to recieve
+    while (1)
+    {
+        QueueSetMemberHandle_t member = xQueueSelectFromSet(queue_set, pdMS_TO_TICKS(1000));
+        if (member != NULL && xRingbufferCanRead(xRingReceivedEspnow, member) == pdTRUE)
+        {
+            ESP_LOGI(TAG, "Attempting to send processed packet over TCP server");
+
+            if (xSemaphoreTake(xSemaphore, (TickType_t)1024) == pdTRUE)
+            {
+                ESP_LOGD(TAG, "Send task taken semaphore");
+
+                // Timeout for receiving from buffer doesn't matter due to checking the queue set
+                size_t item_size;
+                mspPacket_t *packet = (mspPacket_t *)xRingbufferReceive(xRingReceivedEspnow, &item_size, 0);
+
+                uint8_t packetSize = msp.getTotalPacketSize(packet);
+                uint8_t nowDataOutput[packetSize];
+                uint8_t result = msp.convertToByteArray(packet, nowDataOutput);
+
+                if (result)
+                {
+                    for (int i = 0; i < active_connections_count; i++)
+                    {
+                        int fd = connections[i].fd;
+
+                        if (fd > 0 && FD_ISSET(fd, &ready))
+                        {
+                            if (send(fd, &nowDataOutput, packetSize, 0) < 0)
+                                ESP_LOGE(TAG, "Failed to send response: errno %d", errno);
+                        }
+                    }
+                }
+                else
+
+                    ESP_LOGE(TAG, "Failed to convert packet from buffer");
+
+                vRingbufferReturnItem(xRingReceivedEspnow, (void *)packet);
+                xSemaphoreGive(xSemaphore);
+
+                ESP_LOGD(TAG, "Send task released semaphore");
+            }
+            else
+                ESP_LOGD(TAG, "Failed to take lock");
+        }
+    }
+}
+
 void run_tcp_server(void *pvParameters)
 {
     MSP msp;
     TaskBufferParams *buffers = (TaskBufferParams *)pvParameters;
-    QueueSetHandle_t queue_set = xQueueCreateSet(3);
+    xRingReceivedEspnow = buffers->read;
 
     // Add ring buffer to queue set
-    if (xRingbufferAddToQueueSetRead(buffers->read, queue_set) != pdTRUE)
-    {
+    if (xRingbufferAddToQueueSetRead(xRingReceivedEspnow, queue_set) != pdTRUE)
         ESP_LOGI(TAG, "Failed to add to queue set");
-    }
+
+    vSemaphoreCreateBinary(xSemaphore);
+    if (xSemaphore != NULL)
+        ESP_LOGI(TAG, "Semaphore created");
+    else
+        ESP_LOGE(TAG, "Semaphore does not exist");
 
     // Initialize Ethernet driver
     uint8_t eth_port_cnt = 0;
@@ -175,13 +240,10 @@ void run_tcp_server(void *pvParameters)
         return;
     }
 
-    struct connection_info connections[LISTENER_MAX_QUEUE];
-    int active_connections_count = 0;
     int max_fd = server_fd;
 
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    fd_set ready;
     int enable = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) < 0)
     {
@@ -226,24 +288,41 @@ void run_tcp_server(void *pvParameters)
         connections[i].fd = INVALID_SOCKET;
     }
 
+    // Create TCP send task with lower priority than manager
+    TaskHandle_t tcpTaskHandle;
+    xTaskCreatePinnedToCore(tcp_server_sender, "SockerSenderTask", 4096, NULL, 8, &tcpTaskHandle, 1);
+
     while (1)
     {
-        // Clear and add server to set
-        FD_ZERO(&ready);
-        FD_SET(server_fd, &ready);
-
-        // Add client(s) to set
-        for (int i = 0; i < active_connections_count; i++)
+        if (xSemaphoreTake(xSemaphore, (TickType_t)1024) == pdTRUE)
         {
-            int conn_fd = connections[i].fd;
-            if (conn_fd > 0)
+            ESP_LOGD(TAG, "Manager has taken semaphore");
+
+            // Clear and add server to set
+            FD_ZERO(&ready);
+            FD_SET(server_fd, &ready);
+
+            // Add client(s) to set
+            for (int i = 0; i < active_connections_count; i++)
             {
-                FD_SET(conn_fd, &ready);
-                if (conn_fd > max_fd)
+                int conn_fd = connections[i].fd;
+                if (conn_fd > 0)
                 {
-                    max_fd = conn_fd;
+                    FD_SET(conn_fd, &ready);
+                    if (conn_fd > max_fd)
+                    {
+                        max_fd = conn_fd;
+                    }
                 }
             }
+
+            xSemaphoreGive(xSemaphore);
+            ESP_LOGD(TAG, "Manager released semaphore");
+        }
+        else
+        {
+            ESP_LOGD(TAG, "Manager timed out taking lock");
+            continue;
         }
 
         // Wait for activity
@@ -251,6 +330,12 @@ void run_tcp_server(void *pvParameters)
         if (activity < 0)
         {
             ESP_LOGE(TAG, "Select error: errno %d", errno);
+            continue;
+        }
+
+        if (xSemaphoreTake(xSemaphore, (TickType_t)1024) == pdFALSE)
+        {
+            ESP_LOGD(TAG, "Manager unable to take semaphore");
             continue;
         }
 
@@ -273,6 +358,21 @@ void run_tcp_server(void *pvParameters)
                          ntohs(current_address_ptr->sin_port),
                          new_fd);
                 active_connections_count++;
+            }
+        }
+
+        // Clean up disconnected clients and compact the array
+        for (int i = 0; i < active_connections_count; i++)
+        {
+            if (connections[i].fd == INVALID_SOCKET)
+            {
+                // Move the last connection to this slot and reduce count
+                if (i < active_connections_count - 1)
+                {
+                    connections[i] = connections[active_connections_count - 1];
+                }
+                active_connections_count--;
+                i--; // Recheck this position
             }
         }
 
@@ -322,56 +422,7 @@ void run_tcp_server(void *pvParameters)
             }
         }
 
-        // Send any processed data to active connections
-        // Use the queue set to check for any new data instead of using timeout to recieve
-        QueueSetMemberHandle_t member = xQueueSelectFromSet(queue_set, pdMS_TO_TICKS(1000));
-        if (member != NULL && xRingbufferCanRead(buffers->read, member) == pdTRUE)
-        {
-            // Timeout for receiving from buffer doesn't matter due to checking the queue set
-            size_t item_size = sizeof(mspPacket_t);
-            mspPacket_t *packet = (mspPacket_t *)xRingbufferReceive(buffers->read, &item_size, pdMS_TO_TICKS(1000));
-            
-            uint8_t packetSize = msp.getTotalPacketSize(packet);
-            uint8_t nowDataOutput[packetSize];
-            uint8_t result = msp.convertToByteArray(packet, nowDataOutput);
-
-            if (result)
-            {
-                for (int i = 0; i < active_connections_count; i++)
-                {
-                    int fd = connections[i].fd;
-
-                    if (fd > 0 && FD_ISSET(fd, &ready))
-                    {
-                        if (send(fd, &nowDataOutput, packetSize, 0) < 0)
-                        {
-                            ESP_LOGE(TAG, "Failed to send response: errno %d", errno);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                ESP_LOGE(TAG, "Failed to convert packet from buffer");
-            }
-
-            vRingbufferReturnItem(buffers->read, (void *)packet);
-        }
-
-        // Clean up disconnected clients and compact the array
-        for (int i = 0; i < active_connections_count; i++)
-        {
-            if (connections[i].fd == INVALID_SOCKET)
-            {
-                // Move the last connection to this slot and reduce count
-                if (i < active_connections_count - 1)
-                {
-                    connections[i] = connections[active_connections_count - 1];
-                }
-                active_connections_count--;
-                i--; // Recheck this position
-            }
-        }
+        xSemaphoreGive(xSemaphore);
     }
 
 err:

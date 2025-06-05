@@ -45,11 +45,11 @@ void sendInProgressResponse()
     {
         out.addByte(response[i]);
     }
-    UBaseType_t res = xRingbufferSend(xRingReceivedEspnow, &out, sizeof(mspPacket_t), pdMS_TO_TICKS(1000));
-    if (res != pdTRUE)
-    {
+
+    if (xRingbufferSend(xRingReceivedEspnow, &out, sizeof(mspPacket_t), pdMS_TO_TICKS(1000)) == pdTRUE)
+        ESP_LOGI(TAG, "Added progress response to ring buffer");
+    else
         ESP_LOGE(TAG, "Failed to add item progress response to ring buffer");
-    }
 }
 
 void runBindTask(void *pvParameters)
@@ -181,11 +181,10 @@ static void espnowRecvCB(const esp_now_recv_info_t *recv_info, const uint8_t *da
             }
             case MSP_ELRS_BACKPACK_SET_RECORDING_STATE:
             {
-                UBaseType_t res = xRingbufferSend(xRingReceivedEspnow, msp.getReceivedPacket(), sizeof(mspPacket_t), pdMS_TO_TICKS(1000));
-                if (res != pdTRUE)
-                {
+                if (xRingbufferSend(xRingReceivedEspnow, msp.getReceivedPacket(), sizeof(mspPacket_t), pdMS_TO_TICKS(1000)) == pdTRUE)
+                    ESP_LOGI(TAG, "Recording state change added to buffer");
+                else
                     ESP_LOGE(TAG, "Failed to add recieved ESPNOW data to ring buffer");
-                }
             }
             }
 
@@ -265,7 +264,7 @@ void runESPNOWServer(void *pvParameters)
     while (1)
     {
         // Send data from incoming buffer over ESPNOW
-        size_t item_size = sizeof(mspPacket_t);
+        size_t item_size;
         mspPacket_t *packet = (mspPacket_t *)xRingbufferReceive(buffers->read, &item_size, pdMS_TO_TICKS(1000));
         if (packet != NULL)
         {
@@ -289,11 +288,12 @@ void runESPNOWServer(void *pvParameters)
                     {
                         out.addByte(description->version[i]);
                     }
-                    UBaseType_t res = xRingbufferSend(xRingReceivedEspnow, &out, sizeof(mspPacket_t), pdMS_TO_TICKS(1000));
-                    if (res != pdTRUE)
-                    {
+
+                    if (xRingbufferSend(xRingReceivedEspnow, &out, sizeof(mspPacket_t), pdMS_TO_TICKS(1000)) == pdTRUE)
+                        ESP_LOGI(TAG, "Added device version to ring buffer");
+                    else
                         ESP_LOGE(TAG, "Failed to add item to ring buffer");
-                    }
+
                     break;
                 }
                 case MSP_ELRS_BACKPACK_SET_MODE:

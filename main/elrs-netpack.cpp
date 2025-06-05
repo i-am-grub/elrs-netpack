@@ -33,11 +33,11 @@ extern "C" void app_main(void)
     espnow_params = (TaskBufferParams){
         .write = xRingReceivedEspnow,
         .read = xRingReceivedSocket};
-    xTaskCreatePinnedToCore(runESPNOWServer, "ESPNOWTask", 4096, ( void * ) &espnow_params, 10, &espnowTaskHandle, 0);
+    xTaskCreatePinnedToCore(runESPNOWServer, "ESPNOWTask", 4096, (void *)&espnow_params, 10, &espnowTaskHandle, 0);
 
     // Assign TCP Socket server to Core 1
     tcp_server_params = (TaskBufferParams){
         .write = xRingReceivedSocket,
-        .read =xRingReceivedEspnow};
-    xTaskCreatePinnedToCore(run_tcp_server, "EthTask", 4096, ( void * ) &tcp_server_params, 10, &tcpTaskHandle, 1);
+        .read = xRingReceivedEspnow};
+    xTaskCreatePinnedToCore(run_tcp_server, "SocketManagerTask", 4096, (void *)&tcp_server_params, 10, &tcpTaskHandle, 1);
 }

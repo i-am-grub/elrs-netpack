@@ -218,6 +218,7 @@ void run_tcp_server(void *pvParameters)
         eth_netif_cfg.if_desc = if_desc_str;
         eth_netif_cfg.route_prio -= i * 5;
         esp_netif_t *eth_netif = esp_netif_new(&cfg);
+        esp_netif_set_hostname(eth_netif, "elrs-netpack");
         // Attach Ethernet driver to TCP/IP stack
         ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[i])));
     }

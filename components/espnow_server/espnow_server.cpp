@@ -24,17 +24,17 @@ static const char *TAG = "espnow_server";
 const esp_app_desc_t *description = esp_app_get_description();
 const TickType_t espnowDelay = CONFIG_ESPNOW_SEND_DELAY / portTICK_PERIOD_MS;
 
-uint8_t bindAddress[6];
-uint8_t sendAddress[6];
-nvs_handle_t bp_mac_handle;
+static uint8_t bindAddress[6];
+static uint8_t sendAddress[6];
+static nvs_handle_t bp_mac_handle;
 
 static TaskHandle_t espnowTaskHandle = NULL;
 static TaskHandle_t bindTaskHandle = NULL;
 static RingbufHandle_t xRingReceivedEspnow = NULL;
 
-bool isBinding = false;
+static bool isBinding = false;
 
-void sendInProgressResponse()
+static void sendInProgressResponse()
 {
     mspPacket_t out;
     const uint8_t *response = (const uint8_t *)"P";
@@ -52,13 +52,13 @@ void sendInProgressResponse()
         ESP_LOGE(TAG, "Failed to add item progress response to ring buffer");
 }
 
-void runBindTask(void *pvParameters)
+static void runBindTask(void *pvParameters)
 {
     vTaskDelay(NO_BINDING_TIMEOUT);
     isBinding = false;
 }
 
-void registerPeer(uint8_t *address)
+static void registerPeer(uint8_t *address)
 {
     esp_now_peer_info_t peerInfo;
     memset(&peerInfo, 0, sizeof(peerInfo));
@@ -71,7 +71,7 @@ void registerPeer(uint8_t *address)
     }
 }
 
-int sendMSPViaEspnow(mspPacket_t *packet)
+static int sendMSPViaEspnow(mspPacket_t *packet)
 {
     MSP msp;
     int esp_err = -1;
@@ -265,7 +265,7 @@ void runESPNOWServer(void *pvParameters)
     {
         // Send data from incoming buffer over ESPNOW
         size_t item_size;
-        mspPacket_t *packet = (mspPacket_t *)xRingbufferReceive(buffers->read, &item_size, pdMS_TO_TICKS(1000));
+        mspPacket_t *packet = (mspPacket_t *)xRingbufferReceive(buffers->read, &item_size, portMAX_DELAY);
         if (packet != NULL)
         {
             uint8_t packetSize = msp.getTotalPacketSize(packet);

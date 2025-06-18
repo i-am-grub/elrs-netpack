@@ -1,0 +1,39 @@
+name: Prerelease Firmware
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+-[a-z]+[0-9]+'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: ESP-IDF Build
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v5.4
+        target: esp32s3
+        path: '.'
+
+    - name: Zip Files
+      working-directory: ./build/
+      run: zip ../netpack_firmware.zip -j elrs-netpack.bin bootloader/bootloader.bin partition_table/partition-table.bin
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      if: github.ref_type == 'tag'
+      with:
+        name: ELRS Netpack ${{ github.ref_name }}
+        generate_release_notes: false
+        make_latest: false
+        files: ./netpack_firmware.zip
+        prerelease: true
+        token: ${{ secrets.GITHUB_TOKEN  }}
+       

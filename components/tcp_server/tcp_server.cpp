@@ -34,9 +34,9 @@ struct connection_info
     struct sockaddr_in address;
 };
 
-struct connection_info connections[LISTENER_MAX_QUEUE];
-int active_connections_count = 0;
-fd_set ready;
+static struct connection_info connections[LISTENER_MAX_QUEUE];
+static int active_connections_count = 0;
+static fd_set ready;
 
 /* Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *data)
@@ -71,7 +71,7 @@ static void start_dhcp_server_after_connection(void *arg, esp_event_base_t base,
 }
 #endif
 
-void tcp_server_sender(void *pvParameters)
+static void tcp_server_sender(void *pvParameters)
 {
     MSP msp;
 
@@ -79,12 +79,12 @@ void tcp_server_sender(void *pvParameters)
     // Use the queue set to check for any new data instead of using timeout to recieve
     while (1)
     {
-        QueueSetMemberHandle_t member = xQueueSelectFromSet(queue_set, pdMS_TO_TICKS(1000));
+        QueueSetMemberHandle_t member = xQueueSelectFromSet(queue_set, portMAX_DELAY);
         if (member != NULL && xRingbufferCanRead(xRingReceivedEspnow, member) == pdTRUE)
         {
             ESP_LOGI(TAG, "Attempting to send processed packet over TCP server");
 
-            if (xSemaphoreTake(xSemaphore, (TickType_t)1024) == pdTRUE)
+            if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
             {
                 ESP_LOGD(TAG, "Send task taken semaphore");
 
@@ -295,7 +295,7 @@ void run_tcp_server(void *pvParameters)
 
     while (1)
     {
-        if (xSemaphoreTake(xSemaphore, (TickType_t)1024) == pdTRUE)
+        if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
         {
             ESP_LOGD(TAG, "Manager has taken semaphore");
 
@@ -334,7 +334,7 @@ void run_tcp_server(void *pvParameters)
             continue;
         }
 
-        if (xSemaphoreTake(xSemaphore, (TickType_t)1024) == pdFALSE)
+        if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdFALSE)
         {
             ESP_LOGD(TAG, "Manager unable to take semaphore");
             continue;

@@ -100,18 +100,18 @@ void PeerManager::addPeer(uint8_t address[])
 {
     if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
     {
-        Peer_t peer(address);
+        peers.push_back({address});
 
-        int status = esp_now_add_peer(&peer.peerInfo);
+        int status = esp_now_add_peer(&peers.back().peerInfo);
         if (status != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to register new peer: %d", status);
+            peers.pop_back();
             xSemaphoreGive(xSemaphore);
             return;
         }
 
-        xTaskCreate(sendToPeerTask, "sendToPeerTask", 4096, (void *)&peer, 9, &peer.taskHandle);
-        peers.push_back(peer);
+        xTaskCreate(sendToPeerTask, "sendToPeerTask", 4096, (void *)&peers.back(), 9, &peers.back().taskHandle);
 
         xSemaphoreGive(xSemaphore);
     }

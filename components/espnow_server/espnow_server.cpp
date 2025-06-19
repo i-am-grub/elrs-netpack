@@ -86,9 +86,6 @@ static int sendMSPViaEspnow(mspPacket_t *packet)
         return esp_err;
     }
 
-    esp_now_peer_num_t pn;
-    esp_now_get_peer_num(&pn);
-
     esp_err = esp_now_send(sendAddress, (uint8_t *)&nowDataOutput, packetSize);
 
     ESP_LOGI(TAG, "Sent ESPNOW message");

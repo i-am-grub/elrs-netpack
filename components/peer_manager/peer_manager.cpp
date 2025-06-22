@@ -16,7 +16,7 @@ static void sendToPeerTask(void *pvParameters)
 {
     MSP msp;
     int sendStatus;
-    uint8_t sendAttempts;
+    uint8_t sendAttempt;
     uint32_t sendSuccess;
 
     Peer_t *peer = (Peer_t *)pvParameters;
@@ -39,7 +39,7 @@ static void sendToPeerTask(void *pvParameters)
                 continue;
             }
 
-            sendAttempts = 0;
+            sendAttempt = 0;
             do
             {
                 sendStatus = esp_now_send(peer->peerInfo.peer_addr, (uint8_t *)&nowDataOutput, packetSize);
@@ -52,7 +52,7 @@ static void sendToPeerTask(void *pvParameters)
                     break;
                 }
 
-            } while (++sendAttempts < MAX_RETRIES && !sendSuccess);
+            } while (++sendAttempt < MAX_RETRIES && !sendSuccess);
 
             vRingbufferReturnItem(peer->buffer, (void *)packet);
         }
@@ -80,6 +80,11 @@ PeerManager::PeerManager()
     ESP_ERROR_CHECK(esp_now_register_send_cb(espnowSendCB));
 }
 
+PeerManager::~PeerManager()
+{
+    vSemaphoreDelete(xSemaphore);
+}
+
 const Peer_t *
 PeerManager::findPeer(const uint8_t *address)
 {
@@ -100,7 +105,7 @@ void PeerManager::addPeer(uint8_t address[])
 {
     if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
     {
-        peers.push_back({address});
+        peers.emplace_back(address);
 
         int status = esp_now_add_peer(&peers.back().peerInfo);
         if (status != ESP_OK)
@@ -111,7 +116,7 @@ void PeerManager::addPeer(uint8_t address[])
             return;
         }
 
-        xTaskCreate(sendToPeerTask, "sendToPeerTask", 4096, (void *)&peers.back(), 9, &peers.back().taskHandle);
+        xTaskCreate(sendToPeerTask, "PeerSenderTask", 4096, (void *)&peers.back(), 9, &peers.back().taskHandle);
 
         xSemaphoreGive(xSemaphore);
     }

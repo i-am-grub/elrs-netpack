@@ -7,7 +7,7 @@
 
 static const char *TAG = "peer_manager";
 
-static void espnowSendCB(const uint8_t *mac_addr, esp_now_send_status_t status)
+void espnowSendCB(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
     peerManager.notifyPeer(mac_addr, status);
 }
@@ -77,7 +77,6 @@ Peer::~Peer()
 PeerManager::PeerManager()
 {
     vSemaphoreCreateBinary(xSemaphore);
-    ESP_ERROR_CHECK(esp_now_register_send_cb(espnowSendCB));
 }
 
 PeerManager::~PeerManager()
@@ -103,6 +102,12 @@ PeerManager::findPeer(const uint8_t *address)
 
 void PeerManager::addPeer(uint8_t address[])
 {
+    if (esp_now_is_peer_exist(address))
+    {
+        ESP_LOGE(TAG, "Espnow peer already registerd");
+        return;
+    }
+
     if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
     {
         peers.emplace_back(address);
@@ -115,6 +120,9 @@ void PeerManager::addPeer(uint8_t address[])
             xSemaphoreGive(xSemaphore);
             return;
         }
+
+        ESP_LOGI(TAG, "Registered espnow peer: [%d.%d.%d.%d.%d.%d]", address[0], address[1], address[2], address[3], address[4], address[5]);
+        ESP_LOGI(TAG, "Peers in vector: %d", peers.size());
 
         xTaskCreate(sendToPeerTask, "PeerSenderTask", 4096, (void *)&peers.back(), 9, &peers.back().taskHandle);
 
@@ -138,6 +146,7 @@ void PeerManager::removePeer(uint8_t *address)
                 peer->peerInfo.peer_addr[5] == address[5])
             {
                 peers.erase(peers.begin() + i);
+                ESP_LOGI(TAG, "Removed espnow peer");
                 xSemaphoreGive(xSemaphore);
                 return;
             }
@@ -151,6 +160,7 @@ void PeerManager::clearPeers()
     if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
     {
         peers.clear();
+        ESP_LOGI(TAG, "Registered espnow peers cleared");
         xSemaphoreGive(xSemaphore);
     }
 }

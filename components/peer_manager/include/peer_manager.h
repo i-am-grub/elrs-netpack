@@ -9,6 +9,8 @@
 #define MAX_RETRIES 5
 #define BUFFER_MAX_ITEMS 64
 
+extern void espnowSendCB(const uint8_t *mac_addr, esp_now_send_status_t status);
+
 typedef struct Peer
 {
     esp_now_peer_info_t peerInfo;
@@ -35,4 +37,4 @@ private:
     std::vector<Peer_t> peers;
     SemaphoreHandle_t xSemaphore = NULL;
     const Peer_t *findPeer(const uint8_t *address);
-} peerManager;
+} inline peerManager;

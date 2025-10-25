@@ -15,3 +15,4 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/ethernet_init: "^0.5.0"
+  espressif/mdns: "^1.8.2"

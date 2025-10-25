@@ -15,12 +15,12 @@
 #include "dhcpserver/dhcpserver_options.h"
 #include "tasks.h"
 #include "msp.h"
+#include "mdns.h"
 
 #define INVALID_SOCKET -1
 #define LISTENER_MAX_QUEUE 1
 #define SOCKET_MAX_LENGTH 1440 // at least equal to MSS
 #define MAX_MSG_LENGTH 128
-
 static const char *TAG = "tcp_server";
 
 static QueueSetHandle_t queue_set = xQueueCreateSet(51);
@@ -38,9 +38,32 @@ static struct connection_info connections[LISTENER_MAX_QUEUE];
 static int active_connections_count = 0;
 static fd_set ready;
 
+static bool mdns_setup = false;
+
+static void initialize_mdns(esp_netif_t *eth_netif)
+{
+    ESP_ERROR_CHECK(mdns_init());
+    ESP_ERROR_CHECK(mdns_hostname_set("elrs-netpack"));
+
+    mdns_txt_item_t serviceTxtData[3] = {
+        {"board", "esp32s3"},
+        {"type", "time"},
+        {"project", "elrs-netpack"}};
+
+    ESP_ERROR_CHECK(mdns_service_add("ExpressLRS Backpack", "_elrs-backpack", "_tcp", CONFIG_TCP_SERVER_PORT, serviceTxtData, 3));
+
+    ESP_ERROR_CHECK(mdns_register_netif(eth_netif));
+    ESP_ERROR_CHECK(mdns_netif_action(eth_netif, MDNS_EVENT_ENABLE_IP4));
+    ESP_ERROR_CHECK(mdns_netif_action(eth_netif, MDNS_EVENT_ANNOUNCE_IP4));
+    ESP_ERROR_CHECK(mdns_netif_action(eth_netif, MDNS_EVENT_IP4_REVERSE_LOOKUP));
+
+    mdns_setup = true;
+}
+
 /* Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *data)
 {
+    esp_netif_t *eth_netif = (esp_netif_t *)arg;
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
     const esp_netif_ip_info_t *ip_info = &event->ip_info;
 
@@ -50,26 +73,10 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t
     ESP_LOGI(TAG, "ETHMASK:" IPSTR, IP2STR(&ip_info->netmask));
     ESP_LOGI(TAG, "ETHGW:" IPSTR, IP2STR(&ip_info->gw));
     ESP_LOGI(TAG, "~~~~~~~~~~~");
-}
 
-#if CONFIG_ACT_AS_DHCP_SERVER
-static void start_dhcp_server_after_connection(void *arg, esp_event_base_t base, int32_t id, void *event_data)
-{
-    // We have manipulation with esp_netifs under our control in the example, so we can use unsafe functions
-    esp_netif_t *eth_netif = esp_netif_next_unsafe(NULL);
-    esp_eth_handle_t eth_handle = *(esp_eth_handle_t *)event_data;
-    while (eth_netif != NULL)
-    {
-        esp_eth_handle_t eth_handle_for_current_netif = esp_netif_get_io_driver(eth_netif);
-        if (memcmp(&eth_handle, &eth_handle_for_current_netif, sizeof(esp_eth_handle_t)) == 0)
-        {
-            esp_netif_dhcps_start(eth_netif);
-            ESP_LOGI(TAG, "DHCP server started on %s\n", esp_netif_get_desc(eth_netif));
-        }
-        eth_netif = esp_netif_next_unsafe(eth_netif);
-    }
+    if (!mdns_setup)
+        initialize_mdns(eth_netif);
 }
-#endif
 
 static void tcp_server_sender(void *pvParameters)
 {
@@ -149,54 +156,7 @@ void run_tcp_server(void *pvParameters)
     char if_desc_str[10];
     esp_netif_config_t cfg;
     esp_netif_inherent_config_t eth_netif_cfg;
-#if CONFIG_ACT_AS_DHCP_SERVER
-    ESP_LOGI(TAG, "Example will act as DHCP server");
-    esp_netif_ip_info_t *ip_infos;
 
-    ip_infos = calloc(eth_port_cnt, sizeof(esp_netif_ip_info_t));
-
-    eth_netif_cfg = (esp_netif_inherent_config_t){
-        .get_ip_event = IP_EVENT_ETH_GOT_IP,
-        .lost_ip_event = 0,
-        .flags = ESP_NETIF_DHCP_SERVER,
-        .route_prio = 50};
-    cfg = (esp_netif_config_t){
-        .base = &eth_netif_cfg,
-        .stack = ESP_NETIF_NETSTACK_DEFAULT_ETH};
-
-    for (uint8_t i = 0; i < eth_port_cnt; i++)
-    {
-        sprintf(if_key_str, "ETH_S%d", i);
-        sprintf(if_desc_str, "eth%d", i);
-
-        esp_netif_ip_info_t ip_info_i = {
-            .ip = {.addr = ESP_IP4TOADDR(192, 168, i, 1)},
-            .netmask = {.addr = ESP_IP4TOADDR(255, 255, 255, 0)},
-            .gw = {.addr = ESP_IP4TOADDR(192, 168, i, 1)}};
-        ip_infos[i] = ip_info_i;
-
-        eth_netif_cfg.if_key = if_key_str;
-        eth_netif_cfg.if_desc = if_desc_str;
-        eth_netif_cfg.route_prio -= i * 5;
-        eth_netif_cfg.ip_info = &(ip_infos[i]);
-        esp_netif_t *eth_netif = esp_netif_new(&cfg);
-        // Set DHCP lease time
-        uint32_t lease_opt = CONFIG_DHCP_LEASE_TIME;
-        ESP_ERROR_CHECK(esp_netif_dhcps_option(eth_netif, ESP_NETIF_OP_SET, IP_ADDRESS_LEASE_TIME, &lease_opt, sizeof(lease_opt)));
-        // Attach Ethernet driver to TCP/IP stack
-        ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[i])));
-    }
-    ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_CONNECTED, start_dhcp_server_after_connection, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, got_ip_event_handler, NULL));
-    ESP_LOGI(TAG, "--------");
-    // Start Ethernet driver state machine
-    for (uint8_t i = 0; i < eth_port_cnt; i++)
-    {
-        ESP_ERROR_CHECK(esp_eth_start(eth_handles[i]));
-        ESP_LOGI(TAG, "Network Interface %d: " IPSTR, i, IP2STR(&ip_infos[i].ip));
-    }
-    ESP_LOGI(TAG, "--------");
-#else
     if (eth_port_cnt == 1)
     {
         // Use default config when using one interface
@@ -210,25 +170,21 @@ void run_tcp_server(void *pvParameters)
     cfg = (esp_netif_config_t){
         .base = &eth_netif_cfg,
         .stack = ESP_NETIF_NETSTACK_DEFAULT_ETH};
-    for (int i = 0; i < eth_port_cnt; i++)
-    {
-        sprintf(if_key_str, "ETH_%d", i);
-        sprintf(if_desc_str, "eth%d", i);
-        eth_netif_cfg.if_key = if_key_str;
-        eth_netif_cfg.if_desc = if_desc_str;
-        eth_netif_cfg.route_prio -= i * 5;
-        esp_netif_t *eth_netif = esp_netif_new(&cfg);
-        esp_netif_set_hostname(eth_netif, "elrs-netpack");
-        // Attach Ethernet driver to TCP/IP stack
-        ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[i])));
-    }
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, got_ip_event_handler, NULL));
+    sprintf(if_key_str, "ETH_%d", 0);
+    sprintf(if_desc_str, "eth%d", 0);
+    eth_netif_cfg.if_key = if_key_str;
+    eth_netif_cfg.if_desc = if_desc_str;
+    eth_netif_cfg.route_prio -= 0 * 5;
+    esp_netif_t *eth_netif = esp_netif_new(&cfg);
+
+    // Attach Ethernet driver to TCP/IP stack
+    ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[0])));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, got_ip_event_handler, eth_netif));
     // Start Ethernet driver state machine
     for (int i = 0; i < eth_port_cnt; i++)
     {
         ESP_ERROR_CHECK(esp_eth_start(eth_handles[i]));
     }
-#endif
 
     char *rxbuffer = NULL;
     char *txbuffer = NULL;

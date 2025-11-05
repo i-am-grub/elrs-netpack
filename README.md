@@ -24,3 +24,7 @@ versions included in PlatformIO.
 > version v2.0.17 of Arduino ESP32, which is based on v4.4.7 of ESP-IDF. While
 > newer versions of Arduino ESP32 based on the latest version of ESP-IDF
 > exist, PlatformIO does not officially support them.
+
+## Firmware Installation
+
+To install the ELRS Netpack firmware, use the [Netpack Installer](https://github.com/i-am-grub/netpack-installer) plugin for RotorHazard.

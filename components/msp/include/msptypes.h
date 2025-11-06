@@ -20,8 +20,9 @@
 #define MSP_ELRS_SET_RX_LOAN_MODE               0x0F
 #define MSP_ELRS_GET_BACKPACK_VERSION           0x10
 #define MSP_ELRS_BACKPACK_CRSF_TLM              0x11
-#define MSP_ELRS_SET_SEND_UID                   0x00B5
+#define MSP_ELRS_REGISTER_ESPNOW_PEER           0x00B5
 #define MSP_ELRS_SET_OSD                        0x00B6
+#define MSP_ELRS_SEND_RACE_OSD                  0x00B7
 
 // Config opcodes
 #define MSP_ELRS_BACKPACK_CONFIG                0x30
